@@ -4379,3 +4379,3410 @@ You’ve used all your messages with Instant until 1:35 PM. Upgrade to keep wo
 New chat
 
 Claim free offer
+
+
+
+
+
+
+
+Claim offer
+
+Yesterday 9:23 AM
+i wanted to give you a large text it too large 
+
+how hould i give like is there any website or openiyrce you have access to read i will pate there 
+it about the scraper we are working on
+
+Yes, for a large text about the scraper architecture/debugging, the best options are:
+
+Option 1 (Best): Upload a file here
+You can directly upload:
+
+.txt
+
+.md
+
+.pdf
+
+.docx
+
+.zip (if it contains docs/code)
+
+I can read it from the chat. For a large project discussion, a .md file is actually ideal.
+
+Option 2: Use a GitHub Gist (good for long technical text)
+Create a public/unlisted gist:
+
+Go to:
+GitHub Gist
+
+Paste your text
+
+Save as .md
+
+Send me the link
+
+Example structure:
+
+# LinkedIn Discovery Engine Discussion
+
+## Current Architecture
+...
+
+## Problems
+...
+
+## Previous Decisions
+...
+
+## Code snippets
+...
+Option 3: Paste in multiple messages
+If you don't want to upload:
+
+Send:
+
+PART 1/5
+paste text
+
+Then:
+
+PART 2/5
+I will wait until you say:
+
+END OF DOCUMENT
+before analyzing.
+
+Option 4: Use a private paste service
+You can use:
+
+Pastebin
+
+PrivateBin
+
+For sensitive code/design discussions, PrivateBin is better because it supports expiration.
+
+For our scraper project specifically, I recommend:
+
+Create a .md file and upload it here.
+
+Include:
+
+1. Current architecture
+2. What is already implemented
+3. Errors/logs
+4. AI discussions/decisions
+5. What you want me to evaluate
+Because I already have context about the LinkedIn Discovery Engine, provider architecture, authwall issue, verification layer, etc., I can connect the new document with that.
+
+
+Yesterday 7:00 PM
+
+thegdb.html
+File
+read this html carefully
+
+
+thegdb(1).html
+File
+is this helpful
+
+Yesterday 8:25 PM
+
+Pasted markdown(9).md
+File
+
+
+Pasted code(1).py
+Python
+thi is mt pythion
+
+This is actually a very useful failure because it tells us exactly where the pipeline is broken.
+
+The UI is showing:
+
+Discovery Candidate
+↓
+Fetch Status: AUTH_WALL
+for every employee.
+
+But your Python scraper already proved that these profiles are publicly accessible.
+
+For example:
+
+Andy Brown ✅
+
+Uday Ruddarraju ✅
+
+Greg Brockman ✅
+
+all returned:
+
+HTTP 200
+public_profile_v3
+application/ld+json
+worksFor
+jobTitle
+and you extracted:
+
+about
+
+location
+
+image
+
+followers
+
+education
+
+experience
+
+So why is the pipeline still saying AUTH_WALL?
+
+The discovery pipeline is still using the OLD fetcher.
+Most likely it looks like this
+
+Discovery
+
+↓
+
+Found employee
+
+↓
+
+FetchProvider
+
+↓
+
+https://www.linkedin.com/in/xxxx
+
+↓
+
+999
+or login page
+
+↓
+
+AUTH_WALL
+
+↓
+
+STOP
+It never reaches your new fetch logic.
+
+What SHOULD happen
+Discovery
+
+↓
+
+Found employee
+
+↓
+
+RegionalFetchProvider
+
+↓
+
+www
+↓
+
+fr
+↓
+
+uk
+↓
+
+de
+↓
+
+ca
+↓
+
+...
+
+↓
+
+3 attempts each
+
+↓
+
+merge evidence
+
+↓
+
+PUBLIC_PROFILE ?
+
+YES
+
+↓
+
+Extraction Engine
+
+↓
+
+Evidence
+
+↓
+
+Profile
+Notice
+
+There should NEVER be
+
+www
+
+↓
+
+999
+
+↓
+
+AUTH_WALL
+
+↓
+
+STOP
+That's the old pipeline.
+
+Another clue
+Look at these
+
+Identifiez-vous pour voir le profil complet...
+French
+
+Einloggen...
+German
+
+Iniciar sesión...
+Spanish
+
+This tells me something interesting.
+
+The discovery phase is already searching different regional LinkedIn pages.
+
+But the fetcher immediately classifies
+
+login text
+
+↓
+
+AUTH_WALL
+without checking whether the page ALSO contains
+
+application/ld+json
+
+public_profile_v3
+
+worksFor
+
+jobTitle
+Your Python scraper proved those pages often contain BOTH.
+
+For example
+
+Sign in to view Greg's full profile
+
+...
+
+<script type="application/ld+json">
+
+...
+
+worksFor
+
+...
+
+jobTitle
+Both exist simultaneously.
+
+The login prompt does not mean the page is unusable.
+
+The PageClassifier is probably wrong
+Instead of
+
+contains "sign in"
+
+↓
+
+AUTH_WALL
+it should be
+
+contains JSON-LD?
+
+YES
+
+↓
+
+contains Person?
+
+YES
+
+↓
+
+contains worksFor?
+
+YES
+
+↓
+
+PUBLIC_PROFILE
+Only if
+
+999
+
+AND
+
+no JSON-LD
+
+AND
+
+no public_profile_v3
+
+AND
+
+no worksFor
+should it become
+
+AUTH_WALL
+Another likely bug
+I think the discovery engine is still calling
+
+HttpFetchProvider
+instead of
+
+RegionalFetchProvider
+because your Python fetcher clearly succeeds.
+
+If the UI still shows
+
+AUTH_WALL
+then the production pipeline isn't using the new implementation.
+
+I would tell Gemini this
+The discovery pipeline is still using the old fetch strategy.
+
+Evidence:
+
+The UI marks every discovered employee as AUTH_WALL.
+
+However, the standalone Python prototype successfully fetches those exact profiles as PUBLIC_PROFILE and extracts JSON-LD, worksFor, jobTitle, image, location, followers, education, and about.
+
+Therefore the Discovery Pipeline is NOT using the same fetch logic.
+
+Please trace the runtime call stack:
+
+DiscoveryOrchestrator
+    ↓
+FetchProvider
+    ↓
+PageClassifier
+    ↓
+ExtractionEngine
+
+Verify which FetchProvider is actually instantiated.
+
+I suspect DiscoveryOrchestrator is still constructing the legacy HttpFetchProvider instead of the new RegionalFetchProvider.
+
+Also inspect PageClassifier.
+
+It appears to classify pages as AUTH_WALL whenever login text is present.
+
+This is incorrect.
+
+Many valid public LinkedIn pages simultaneously contain:
+
+- Sign in prompt
+- application/ld+json
+- public_profile_v3
+- worksFor
+- jobTitle
+
+The classifier should prioritize positive evidence over the presence of login UI.
+
+Classification should follow:
+
+IF Person JSON-LD OR public_profile_v3 OR worksFor exists
+    => PUBLIC_PROFILE
+
+ELSE IF HTTP 999 and no structured evidence
+    => AUTH_WALL
+
+Do not assume the fetch pipeline is wired correctly.
+
+Prove which FetchProvider is executing by adding runtime logs showing the concrete provider class, regional attempts, and PageClassifier decision for every discovered employee.
+This is no longer an extraction problem. Your Python scraper has already proven extraction works. The issue is almost certainly that the discovery pipeline is still wired to the legacy fetch/classification path, so it never hands the HTML to the new extraction engine.
+
+
+i have retored to previou verion now explain the mechniam form this discovered technig to ue in this
+
+# LinkedIn Public Profile HTML Discovery & Regional Fetch Strategy
+
+## Overview
+
+During testing of LinkedIn public profile extraction, we discovered that LinkedIn public profile accessibility is not consistent across domains.
+
+A direct request to:
+
+https://www.linkedin.com/in/{profile_id}
+
+
+does not always return public profile HTML.
+
+Depending on LinkedIn's edge routing, risk scoring, geo location, and request fingerprint, the same profile can return:
+
+* Public profile HTML (200 OK)
+* Authentication wall (999)
+* Redirect/authwall HTML
+* Empty blocked response
+
+However, regional LinkedIn domains can return the full public profile snapshot.
+
+Example:
+
+https://www.linkedin.com/in/thegdb
+
+
+may fail.
+
+But:
+
+https://fr.linkedin.com/in/thegdb
+https://uk.linkedin.com/in/thegdb
+https://in.linkedin.com/in/thegdb
+
+
+may return:
+
+HTTP 200
+public_profile_v3
+application/ld+json
+profile metadata
+
+
+---
+
+# Key Discovery
+
+## LinkedIn Regional Domains Are Alternative Public Profile Entry Points
+
+LinkedIn operates multiple regional domains:
+
+www.linkedin.com
+fr.linkedin.com
+uk.linkedin.com
+in.linkedin.com
+ca.linkedin.com
+au.linkedin.com
+nl.linkedin.com
+es.linkedin.com
+
+
+These domains can produce different responses for the same profile URL.
+
+The regional domain is not simply a redirect.
+
+Example:
+
+Request:
+
+https://fr.linkedin.com/in/thegdb
+
+
+Response:
+
+HTTP 200
+HTML Size: ~300KB
+
+
+Contains:
+
+public_profile_v3
+application/ld+json
+worksFor
+jobTitle
+profile:first_name
+
+
+---
+
+# Failed Approach
+
+## Direct Single Domain Fetch
+
+Initial approach:
+
+GET https://www.linkedin.com/in/{username}
+
+
+Problem:
+
+Many profiles return:
+
+HTTP 999
+SIZE: 1530 bytes
+TITLE: NONE
+
+
+Example:
+
+https://www.linkedin.com/in/sravani-jiripurapu-aa7b932a6
+
+
+Result:
+
+AUTH WALL
+No JSON-LD
+No profile data
+
+
+Conclusion:
+
+A single LinkedIn domain cannot be trusted.
+
+---
+
+# Successful Approach
+
+## Regional Fetch Rotation
+
+Instead of using one endpoint:
+
+www.linkedin.com
+
+
+use multiple regional providers.
+
+Flow:
+
+Profile URL
+     |
+     v
+Regional Fetch Provider
+     |
+     +----------------+
+     |                |
+     v                v
+www.linkedin.com   fr.linkedin.com
+     |
+     v
+uk.linkedin.com
+     |
+     v
+in.linkedin.com
+     |
+     v
+ca.linkedin.com
+     |
+     v
+au.linkedin.com
+     |
+     v
+Public HTML Found
+
+
+---
+
+# Public Profile Detection
+
+A response is considered a valid public profile when:
+
+Required indicators:
+
+public_profile_v3
+application/ld+json
+
+
+Additional signals:
+
+worksFor
+jobTitle
+profile:first_name
+og:title
+profile:last_name
+
+
+Example:
+
+PROFILE INDICATORS:
+
+[
+ "public_profile_v3",
+ "application/ld+json",
+ "worksFor",
+ "jobTitle",
+ "profile:first_name"
+]
+
+
+---
+
+# Data Sources Found in Public HTML
+
+## 1. JSON-LD (Highest Priority)
+
+Location:
+
+html
+<script type="application/ld+json">
+
+
+Example:
+
+json
+{
+ "@type":"Person",
+ "name":"Greg Brockman",
+ "worksFor":[
+   {
+    "name":"OpenAI"
+   }
+ ],
+ "jobTitle":[
+   "President"
+ ]
+}
+
+
+Extraction:
+
+fullName
+company
+jobTitle
+education
+location
+photo
+
+
+Confidence:
+
+0.95
+
+
+---
+
+# 2. Meta Tags
+
+Examples:
+
+html
+<meta property="og:title">
+<meta name="description">
+<meta name="profile:first_name">
+<meta name="profile:last_name">
+
+
+Example:
+
+Greg Brockman - OpenAI | LinkedIn
+
+
+Extraction:
+
+name:
+Greg Brockman
+
+company:
+OpenAI
+
+
+Confidence:
+
+0.80
+
+
+---
+
+# 3. Title Extraction
+
+Example:
+
+<title>
+Greg Brockman - OpenAI | LinkedIn
+</title>
+
+
+Parser:
+
+Split by "-"
+Remove LinkedIn suffix
+
+
+Result:
+
+name:
+Greg Brockman
+
+
+---
+
+# 4. DOM Extraction
+
+Useful selectors:
+
+h1
+h2
+main content
+experience sections
+
+
+Example:
+
+<h1>
+Greg Brockman
+</h1>
+
+
+Note:
+
+DOM experience cards are often incomplete.
+
+---
+
+# 5. SDUI / Rehydration Payload
+
+Some LinkedIn pages contain:
+
+window.__como_rehydration__
+
+
+inside:
+
+html
+<script>
+
+
+This contains React Server Component state.
+
+Possible fields:
+
+firstName
+lastName
+headline
+companyName
+jobTitle
+
+
+However:
+
+* Not always present
+* Schema changes frequently
+* Should be fallback only
+
+---
+
+# Updated Extraction Priority
+
+Final extraction order:
+
+1. JSON-LD
+        |
+        v
+2. Meta tags
+        |
+        v
+3. Title
+        |
+        v
+4. DOM Top Card
+        |
+        v
+5. SDUI Rehydration
+        |
+        v
+6. Snippet fallback
+
+
+---
+
+# New Fetch Architecture
+
+## Fetch Provider Layer
+
+typescript
+interface FetchProvider {
+
+ fetch(profileId:string):
+ Promise<FetchResult>
+
+}
+
+
+Providers:
+
+HttpFetchProvider
+       |
+       |
+RegionalLinkedInProvider
+       |
+       |
+BrowserProvider
+       |
+       |
+ExternalAPIProvider
+       |
+       |
+CacheProvider
+
+
+---
+
+# Regional Provider Logic
+
+Pseudo-code:
+
+typescript
+const regions = [
+ "www",
+ "fr",
+ "uk",
+ "in",
+ "ca",
+ "au",
+ "nl",
+ "es",
+ "de"
+];
+
+
+for(region of regions){
+
+ url =
+ `https://${region}.linkedin.com/in/${id}`;
+
+
+ html =
+ await fetch(url);
+
+
+ if(
+ html.includes("public_profile_v3")
+ &&
+ html.includes("application/ld+json")
+ ){
+
+    return html;
+
+ }
+
+}
+
+
+---
+
+# Important Engineering Rules
+
+## Never fabricate employment
+
+Bad:
+
+Headline:
+"Interested in AI | OpenAI"
+
+Create:
+
+Company:
+OpenAI
+
+
+Not allowed.
+
+---
+
+Correct:
+
+Only create employment evidence from:
+
+worksFor
+verified experience section
+explicit company fields
+
+
+---
+
+# Evidence Model
+
+Every extracted field must contain:
+
+json
+{
+"value":"OpenAI",
+
+"source":"jsonld",
+
+"confidence":0.95,
+
+"type":"EMPLOYMENT"
+}
+
+
+---
+
+# Final Architecture
+
+Discovery Engine
+        |
+        |
+ LinkedIn URL
+        |
+        |
+Regional Fetch Provider
+        |
+        |
+HTML Classifier
+        |
+        |
++--------------------+
+|                    |
+AUTH WALL       PUBLIC PROFILE
+                    |
+                    |
+              Extraction Engine
+                    |
+                    |
+        +-----------+-----------+
+        |           |           |
+      JSON-LD     META       DOM
+        |
+        |
+ Evidence Service
+        |
+        |
+ Verification Engine
+        |
+        |
+ AI Guardrails
+        |
+        |
+ Export
+
+
+---
+
+# Final Conclusion
+
+The main discovery:
+
+LinkedIn public profile extraction is not blocked completely.
+
+The challenge is not the HTML parser.
+
+The challenge is obtaining the correct public HTML response.
+
+Regional LinkedIn domains provide additional public profile access paths.
+
+A robust extractor should:
+
+1. Rotate regional LinkedIn domains.
+2. Detect valid public HTML.
+3. Extract JSON-LD first.
+4. Use evidence-based employment verification.
+5. Never rely on one endpoint.
+
+This transforms the system from a fragile LinkedIn scraper into a resilient public profile evidence extraction engine.
+
+
+TEST Successful
+import requests
+from bs4 import BeautifulSoup
+import json
+import re
+import os
+from urllib.parse import urlparse
+
+
+PROFILE = "thegdb"
+
+DOMAINS = [
+    "www",
+    "fr",
+    "de",
+    "uk",
+    "in",
+    "ca",
+    "au",
+    "nl",
+    "es",
+]
+
+
+OUTPUT = "linkedin_debug"
+
+os.makedirs(OUTPUT, exist_ok=True)
+
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 "
+        "(KHTML, like Gecko) "
+        "Chrome/120 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+
+def save_html(name, html):
+    path = os.path.join(
+        OUTPUT,
+        f"{name}.html"
+    )
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(html)
+
+    return path
+
+
+
+def extract_jsonld(soup):
+
+    results = []
+
+    scripts = soup.find_all(
+        "script",
+        {
+            "type": "application/ld+json"
+        }
+    )
+
+    for s in scripts:
+
+        try:
+            data = json.loads(
+                s.string or s.text
+            )
+
+            results.append(data)
+
+        except Exception:
+            pass
+
+    return results
+
+
+
+def parse_profile(html):
+
+    soup = BeautifulSoup(
+        html,
+        "lxml"
+    )
+
+    print("\nTITLE")
+
+    if soup.title:
+        print(
+            soup.title.text.strip()
+        )
+
+    else:
+        print("NONE")
+
+
+    print("\nMETA PROFILE")
+
+    for meta in soup.find_all("meta"):
+
+        name = meta.get("name")
+        prop = meta.get("property")
+        content = meta.get("content")
+
+        if content:
+
+            if (
+                "profile" in str(name)
+                or
+                "og:title" == prop
+                or
+                "description" == name
+            ):
+                print(
+                    name or prop,
+                    ":",
+                    content[:200]
+                )
+
+
+
+    print("\nH1")
+
+    for x in soup.find_all("h1"):
+        print(
+            "-",
+            x.get_text(
+                " ",
+                strip=True
+            )
+        )
+
+
+    print("\nH2")
+
+    for x in soup.find_all("h2")[:10]:
+
+        text = x.get_text(
+            " ",
+            strip=True
+        )
+
+        if text:
+            print(
+                "-",
+                text
+            )
+
+
+
+    print("\nJSON-LD")
+
+    jsonld = extract_jsonld(soup)
+
+    print(
+        "Blocks:",
+        len(jsonld)
+    )
+
+
+    for block in jsonld:
+
+        print(
+            json.dumps(
+                block,
+                indent=2
+            )[:3000]
+        )
+
+
+    print("\nEMPLOYMENT SIGNALS")
+
+
+    text = soup.get_text(
+        " ",
+        strip=True
+    )
+
+
+    companies = [
+        "OpenAI",
+        "Google",
+        "Microsoft",
+        "Meta",
+        "Amazon",
+        "Apple",
+        "Tesla",
+        "CTO",
+        "CEO",
+        "President",
+        "Founder",
+        "Engineer",
+        "Developer"
+    ]
+
+
+    for c in companies:
+
+        if c.lower() in text.lower():
+
+            print(
+                "FOUND:",
+                c
+            )
+
+
+    return len(jsonld)
+
+
+
+def test_domain(domain):
+
+    url = (
+        f"https://{domain}.linkedin.com/in/{PROFILE}"
+    )
+
+    print("\n")
+    print("="*90)
+    print(url)
+    print("="*90)
+
+
+    try:
+
+        r = requests.get(
+            url,
+            headers=HEADERS,
+            timeout=15,
+            allow_redirects=True
+        )
+
+
+        print(
+            "STATUS:",
+            r.status_code
+        )
+
+
+        print(
+            "FINAL URL:",
+            r.url
+        )
+
+
+        print(
+            "SIZE:",
+            len(r.text)
+        )
+
+
+        name = domain
+
+
+        save = save_html(
+            name,
+            r.text
+        )
+
+
+        print(
+            "SAVED:",
+            save
+        )
+
+
+        html = r.text.lower()
+
+
+        if (
+            "authwall" in html
+            or
+            "sign in" in html[:5000]
+            or
+            r.status_code == 999
+        ):
+
+            print(
+                "❌ AUTH WALL"
+            )
+
+            return
+
+
+        indicators = [
+            "public_profile_v3",
+            "application/ld+json",
+            "worksFor",
+            "jobTitle",
+            "profile:first_name"
+        ]
+
+
+        found = [
+            x for x in indicators
+            if x.lower() in html
+        ]
+
+
+        print(
+            "PROFILE INDICATORS:",
+            found
+        )
+
+
+        parse_profile(
+            r.text
+        )
+
+
+        print(
+            "\n✅ PUBLIC PROFILE FOUND"
+        )
+
+
+    except Exception as e:
+
+        print(
+            "ERROR:",
+            e
+        )
+
+
+
+for d in DOMAINS:
+
+    test_domain(d)
+
+
+print("\nDONE")
+
+---
+OUTPUT:
+SIZE: 317304
+SAVED: linkedin_debug\de.html
+PROFILE INDICATORS: ['public_profile_v3', 'application/ld+json', 'worksFor', 'jobTitle', 'profile:first_name']
+
+TITLE
+Greg Brockman – OpenAI | LinkedIn
+
+META PROFILE
+description : I love to build. · Berufserfahrung: OpenAI · Ausbildung: Massachusetts Institute of Technology · Ort: San Francisco · 500+ Kontakte auf LinkedIn. Sehen Sie sich das Profil von Greg Brockman Greg Brock
+og:title : Greg Brockman – OpenAI | LinkedIn
+
+H1
+- Greg Brockman
+
+H2
+- Einloggen, um das vollständige Profil von Greg Brockman zu sehen
+- Einloggen, um das vollständige Profil von Greg Brockman zu sehen
+- Einloggen, um das vollständige Profil von Greg Brockman zu sehen
+- Gemeinsame Kontakte mit Greg Brockman anzeigen
+- Einloggen, um das vollständige Profil von Greg Brockman zu sehen
+- Websites
+- Info
+- Schön, dass Sie wieder da sind
+- Aktivitäten
+- Berufserfahrung und Ausbildung
+
+JSON-LD
+Blocks: 1
+{
+  "@context": "http://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "reviewedBy": {
+        "@type": "Person",
+        "name": "Greg Brockman"
+      },
+      "url": "https://www.linkedin.com/in/thegdb"
+    },
+    {
+      "@context": "http://schema.org",
+      "@type": "Person",
+      "address": {
+        "@type": "PostalAddress",
+        "addressCountry": "US",
+        "addressLocality": "San Francisco, Kalifornien, Vereinigte Staaten von Amerika"
+      },
+      "alumniOf": [
+        {
+          "@type": "EducationalOrganization",
+          "name": "Massachusetts Institute of Technology",
+          "url": "https://www.linkedin.com/school/mit/",
+          "member": {
+            "@type": "OrganizationRole",
+            "startDate": 2010,
+            "endDate": 2010
+          }
+        },
+        {
+          "@type": "EducationalOrganization",
+          "name": "******* **********",
+          "member": {
+            "@type": "OrganizationRole",
+            "startDate": 2008,
+            "endDate": 2009
+          }
+        }
+      ],
+      "awards": [],
+      "disambiguatingDescription": "",
+      "image": {
+        "@type": "ImageObject",
+        "contentUrl": "https://media.licdn.com/dms/image/v2/C4D03AQGpw6js6Xz_jQ/profile-displayphoto-shrink_200_200/profile-displayphoto-shrink_200_200/0/1516853912679?e=2147483647&v=beta&t=4h9pckK6C38rDeORhxh4WaQ8pVS8XZvC9aPpZ2C9e3I"
+      },
+      "jobTitle": [
+        "********** ********* * **********",
+        "***"
+      ],
+      "knowsLanguage": [],
+      "memberOf": [],
+      "name": "Greg Brockman",
+      "sameAs": "https://www.linkedin.com/in/thegdb",
+      "url": "https://www.linkedin.com/in/thegdb",
+      "worksFor": [
+        {
+          "@type": "Organization",
+          "name": "OpenAI",
+          "url": "https://www.linkedin.com/company/openai",
+          "member": {
+            "@type": "OrganizationRole"
+          }
+        },
+        {
+          "@type": "Organization",
+          "name": "******",
+          "member": {
+            "@type": "OrganizationRole"
+          }
+        }
+      ],
+      "interactionStatistic": {
+        "@type": "InteractionCounter",
+        "interactionType": "https://schema.org/FollowAction",
+        "name": "Follows",
+        "userInteractionCount": 42982
+      },
+      "description": "I love to build."
+    }
+  ]
+}
+
+EMPLOYMENT SIGNALS
+FOUND: OpenAI
+FOUND: Meta
+FOUND: CTO
+FOUND: President
+FOUND: Founder
+FOUND: Engineer
+
+✅ PUBLIC PROFILE FOUND
+
+
+==========================================================================================
+https://uk.linkedin.com/in/thegdb
+==========================================================================================
+STATUS: 200
+FINAL URL: https://uk.linkedin.com/in/thegdb
+SIZE: 309737
+SAVED: linkedin_debug\uk.html
+PROFILE INDICATORS: ['public_profile_v3', 'application/ld+json', 'worksFor', 'jobTitle', 'profile:first_name']
+
+TITLE
+Greg Brockman - OpenAI | LinkedIn
+
+META PROFILE
+description : I love to build. · Experience: OpenAI · Education: Massachusetts Institute of Technology · Location: San Francisco · 500+ connections on LinkedIn. View Greg Brockman’s profile on LinkedIn, a professio
+og:title : Greg Brockman - OpenAI | LinkedIn
+
+H1
+- Greg Brockman
+
+H2
+- Sign in to view Greg’s full profile
+- Sign in to view Greg’s full profile
+- Sign in to view Greg’s full profile
+- View mutual connections with Greg
+- Sign in to view Greg’s full profile
+- Websites
+- About
+- Welcome back
+- Activity
+- Experience & Education
+
+JSON-LD
+Blocks: 1
+{
+  "@context": "http://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "reviewedBy": {
+        "@type": "Person",
+        "name": "Greg Brockman"
+      },
+      "url": "https://www.linkedin.com/in/thegdb"
+    },
+    {
+      "@context": "http://schema.org",
+      "@type": "Person",
+      "address": {
+        "@type": "PostalAddress",
+        "addressCountry": "US",
+        "addressLocality": "San Francisco, California, United States"
+      },
+      "alumniOf": [
+        {
+          "@type": "EducationalOrganization",
+          "name": "Massachusetts Institute of Technology",
+          "url": "https://www.linkedin.com/school/mit/",
+          "member": {
+            "@type": "OrganizationRole",
+            "startDate": 2010,
+            "endDate": 2010
+          }
+        },
+        {
+          "@type": "EducationalOrganization",
+          "name": "******* **********",
+          "member": {
+            "@type": "OrganizationRole",
+            "startDate": 2008,
+            "endDate": 2009
+          }
+        }
+      ],
+      "awards": [],
+      "disambiguatingDescription": "",
+      "image": {
+        "@type": "ImageObject",
+        "contentUrl": "https://media.licdn.com/dms/image/v2/C4D03AQGpw6js6Xz_jQ/profile-displayphoto-shrink_200_200/profile-displayphoto-shrink_200_200/0/1516853912679?e=2147483647&v=beta&t=4h9pckK6C38rDeORhxh4WaQ8pVS8XZvC9aPpZ2C9e3I"
+      },
+      "jobTitle": [
+        "********** ********* * **********",
+        "***"
+      ],
+      "knowsLanguage": [],
+      "memberOf": [],
+      "name": "Greg Brockman",
+      "sameAs": "https://www.linkedin.com/in/thegdb",
+      "url": "https://www.linkedin.com/in/thegdb",
+      "worksFor": [
+        {
+          "@type": "Organization",
+          "name": "OpenAI",
+          "url": "https://www.linkedin.com/company/openai",
+          "member": {
+            "@type": "OrganizationRole"
+          }
+        },
+        {
+          "@type": "Organization",
+          "name": "******",
+          "member": {
+            "@type": "OrganizationRole"
+          }
+        }
+      ],
+      "interactionStatistic": {
+        "@type": "InteractionCounter",
+        "interactionType": "https://schema.org/FollowAction",
+        "name": "Follows",
+        "userInteractionCount": 42982
+      },
+      "description": "I love to build."
+    }
+  ]
+}
+
+EMPLOYMENT SIGNALS
+FOUND: OpenAI
+FOUND: Microsoft
+FOUND: Meta
+FOUND: CTO
+FOUND: President
+FOUND: Founder
+FOUND: Engineer
+
+✅ PUBLIC PROFILE FOUND
+
+
+==========================================================================================
+https://in.linkedin.com/in/thegdb
+==========================================================================================
+STATUS: 200
+FINAL URL: https://in.linkedin.com/in/thegdb
+SIZE: 309737
+SAVED: linkedin_debug\in.html
+PROFILE INDICATORS: ['public_profile_v3', 'application/ld+json', 'worksFor', 'jobTitle', 'profile:first_name']
+
+TITLE
+Greg Brockman - OpenAI | LinkedIn
+
+META PROFILE
+description : I love to build. · Experience: OpenAI · Education: Massachusetts Institute of Technology · Location: San Francisco · 500+ connections on LinkedIn. View Greg Brockman’s profile on LinkedIn, a professio
+og:title : Greg Brockman - OpenAI | LinkedIn
+
+H1
+- Greg Brockman
+
+H2
+- Sign in to view Greg’s full profile
+- Sign in to view Greg’s full profile
+- Sign in to view Greg’s full profile
+- View mutual connections with Greg
+- Sign in to view Greg’s full profile
+- Websites
+- About
+- Welcome back
+- Activity
+- Experience & Education
+
+JSON-LD
+Blocks: 1
+{
+  "@context": "http://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "reviewedBy": {
+        "@type": "Person",
+        "name": "Greg Brockman"
+      },
+      "url": "https://www.linkedin.com/in/thegdb"
+    },
+    {
+      "@context": "http://schema.org",
+      "@type": "Person",
+      "address": {
+        "@type": "PostalAddress",
+        "addressCountry": "US",
+        "addressLocality": "San Francisco, California, United States"
+      },
+      "alumniOf": [
+        {
+          "@type": "EducationalOrganization",
+          "name": "Massachusetts Institute of Technology",
+          "url": "https://www.linkedin.com/school/mit/",
+          "member": {
+            "@type": "OrganizationRole",
+            "startDate": 2010,
+            "endDate": 2010
+          }
+        },
+        {
+          "@type": "EducationalOrganization",
+          "name": "******* **********",
+          "member": {
+            "@type": "OrganizationRole",
+            "startDate": 2008,
+            "endDate": 2009
+          }
+        }
+      ],
+      "awards": [],
+      "disambiguatingDescription": "",
+      "image": {
+        "@type": "ImageObject",
+        "contentUrl": "https://media.licdn.com/dms/image/v2/C4D03AQGpw6js6Xz_jQ/profile-displayphoto-shrink_200_200/profile-displayphoto-shrink_200_200/0/1516853912679?e=2147483647&v=beta&t=4h9pckK6C38rDeORhxh4WaQ8pVS8XZvC9aPpZ2C9e3I"
+      },
+      "jobTitle": [
+        "********** ********* * **********",
+        "***"
+      ],
+      "knowsLanguage": [],
+      "memberOf": [],
+      "name": "Greg Brockman",
+      "sameAs": "https://www.linkedin.com/in/thegdb",
+      "url": "https://www.linkedin.com/in/thegdb",
+      "worksFor": [
+        {
+          "@type": "Organization",
+          "name": "OpenAI",
+          "url": "https://www.linkedin.com/company/openai",
+          "member": {
+            "@type": "OrganizationRole"
+          }
+        },
+        {
+          "@type": "Organization",
+          "name": "******",
+          "member": {
+            "@type": "OrganizationRole"
+          }
+        }
+      ],
+      "interactionStatistic": {
+        "@type": "InteractionCounter",
+        "interactionType": "https://schema.org/FollowAction",
+        "name": "Follows",
+        "userInteractionCount": 42982
+      },
+      "description": "I love to build."
+    }
+  ]
+}
+
+EMPLOYMENT SIGNALS
+FOUND: OpenAI
+FOUND: Microsoft
+FOUND: Meta
+FOUND: CTO
+FOUND: President
+FOUND: Founder
+FOUND: Engineer
+
+✅ PUBLIC PROFILE FOUND
+
+
+==========================================================================================
+https://ca.linkedin.com/in/thegdb
+==========================================================================================
+STATUS: 200
+FINAL URL: https://ca.linkedin.com/in/thegdb
+SIZE: 318219
+SAVED: linkedin_debug\ca.html
+PROFILE INDICATORS: ['public_profile_v3', 'application/ld+json', 'worksFor', 'jobTitle', 'profile:first_name']
+
+TITLE
+Greg Brockman - OpenAI | LinkedIn
+
+META PROFILE
+description : I love to build. · Experience: OpenAI · Education: Massachusetts Institute of Technology · Location: San Francisco · 500+ connections on LinkedIn. View Greg Brockman’s profile on LinkedIn, a professio
+og:title : Greg Brockman - OpenAI | LinkedIn
+
+H1
+- Greg Brockman
+
+H2
+- Sign in to view Greg’s full profile
+- Sign in to view Greg’s full profile
+- Sign in to view Greg’s full profile
+- View mutual connections with Greg
+- Sign in to view Greg’s full profile
+- Websites
+- About
+- Welcome back
+- Activity
+- Experience & Education
+
+JSON-LD
+Blocks: 1
+{
+  "@context": "http://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "reviewedBy": {
+        "@type": "Person",
+        "name": "Greg Brockman"
+      },
+      "url": "https://www.linkedin.com/in/thegdb"
+    },
+    {
+      "@context": "http://schema.org",
+      "@type": "Person",
+      "address": {
+        "@type": "PostalAddress",
+        "addressCountry": "US",
+        "addressLocality": "San Francisco, California, United States"
+      },
+      "alumniOf": [
+        {
+          "@type": "EducationalOrganization",
+          "name": "Massachusetts Institute of Technology",
+          "url": "https://www.linkedin.com/school/mit/",
+          "member": {
+            "@type": "OrganizationRole",
+            "startDate": 2010,
+            "endDate": 2010
+          }
+        },
+        {
+          "@type": "EducationalOrganization",
+          "name": "******* **********",
+          "member": {
+            "@type": "OrganizationRole",
+            "startDate": 2008,
+            "endDate": 2009
+          }
+        }
+      ],
+      "awards": [],
+      "disambiguatingDescription": "",
+      "image": {
+        "@type": "ImageObject",
+        "contentUrl": "https://media.licdn.com/dms/image/v2/C4D03AQGpw6js6Xz_jQ/profile-displayphoto-shrink_200_200/profile-displayphoto-shrink_200_200/0/1516853912679?e=2147483647&v=beta&t=4h9pckK6C38rDeORhxh4WaQ8pVS8XZvC9aPpZ2C9e3I"
+      },
+      "jobTitle": [
+        "********** ********* * **********",
+        "***"
+      ],
+      "knowsLanguage": [],
+      "memberOf": [],
+      "name": "Greg Brockman",
+      "sameAs": "https://www.linkedin.com/in/thegdb",
+      "url": "https://www.linkedin.com/in/thegdb",
+      "worksFor": [
+        {
+          "@type": "Organization",
+          "name": "OpenAI",
+          "url": "https://www.linkedin.com/company/openai",
+          "member": {
+            "@type": "OrganizationRole"
+          }
+        },
+        {
+          "@type": "Organization",
+          "name": "******",
+          "member": {
+            "@type": "OrganizationRole"
+          }
+        }
+      ],
+      "interactionStatistic": {
+        "@type": "InteractionCounter",
+        "interactionType": "https://schema.org/FollowAction",
+        "name": "Follows",
+        "userInteractionCount": 42982
+      },
+      "description": "I love to build."
+    }
+  ]
+}
+
+EMPLOYMENT SIGNALS
+FOUND: OpenAI
+FOUND: Microsoft
+FOUND: Meta
+FOUND: CTO
+FOUND: President
+FOUND: Founder
+FOUND: Engineer
+
+✅ PUBLIC PROFILE FOUND
+
+
+==========================================================================================
+https://au.linkedin.com/in/thegdb
+==========================================================================================
+STATUS: 200
+FINAL URL: https://au.linkedin.com/in/thegdb
+SIZE: 344555
+SAVED: linkedin_debug\au.html
+PROFILE INDICATORS: ['public_profile_v3', 'application/ld+json', 'worksFor', 'jobTitle', 'profile:first_name']
+
+TITLE
+Greg Brockman - OpenAI | LinkedIn
+
+META PROFILE
+description : I love to build. · Experience: OpenAI · Education: Massachusetts Institute of Technology · Location: San Francisco · 500+ connections on LinkedIn. View Greg Brockman’s profile on LinkedIn, a professio
+og:title : Greg Brockman - OpenAI | LinkedIn
+
+H1
+- Greg Brockman
+
+H2
+- Sign in to view Greg’s full profile
+- Sign in to view Greg’s full profile
+- Sign in to view Greg’s full profile
+- View mutual connections with Greg
+- Sign in to view Greg’s full profile
+- Websites
+- About
+- Welcome back
+- Activity
+- Experience & Education
+
+JSON-LD
+Blocks: 1
+{
+  "@context": "http://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "reviewedBy": {
+        "@type": "Person",
+        "name": "Greg Brockman"
+      },
+      "url": "https://www.linkedin.com/in/thegdb"
+    },
+    {
+      "@context": "http://schema.org",
+      "@type": "Person",
+      "address": {
+        "@type": "PostalAddress",
+        "addressCountry": "US",
+        "addressLocality": "San Francisco, California, United States"
+      },
+      "alumniOf": [
+        {
+          "@type": "EducationalOrganization",
+          "name": "Massachusetts Institute of Technology",
+          "url": "https://www.linkedin.com/school/mit/",
+          "member": {
+            "@type": "OrganizationRole",
+            "startDate": 2010,
+            "endDate": 2010
+          }
+        },
+        {
+          "@type": "EducationalOrganization",
+          "name": "******* **********",
+          "member": {
+            "@type": "OrganizationRole",
+            "startDate": 2008,
+            "endDate": 2009
+          }
+        }
+      ],
+      "awards": [],
+      "disambiguatingDescription": "",
+      "image": {
+        "@type": "ImageObject",
+        "contentUrl": "https://media.licdn.com/dms/image/v2/C4D03AQGpw6js6Xz_jQ/profile-displayphoto-shrink_200_200/profile-displayphoto-shrink_200_200/0/1516853912679?e=2147483647&v=beta&t=4h9pckK6C38rDeORhxh4WaQ8pVS8XZvC9aPpZ2C9e3I"
+      },
+      "jobTitle": [
+        "********** ********* * **********",
+        "***"
+      ],
+      "knowsLanguage": [],
+      "memberOf": [],
+      "name": "Greg Brockman",
+      "sameAs": "https://www.linkedin.com/in/thegdb",
+      "url": "https://www.linkedin.com/in/thegdb",
+      "worksFor": [
+        {
+          "@type": "Organization",
+          "name": "OpenAI",
+          "url": "https://www.linkedin.com/company/openai",
+          "member": {
+            "@type": "OrganizationRole"
+          }
+        },
+        {
+          "@type": "Organization",
+          "name": "******",
+          "member": {
+            "@type": "OrganizationRole"
+          }
+        }
+      ],
+      "interactionStatistic": {
+        "@type": "InteractionCounter",
+        "interactionType": "https://schema.org/FollowAction",
+        "name": "Follows",
+        "userInteractionCount": 42983
+      },
+      "description": "I love to build."
+    }
+  ]
+}
+
+EMPLOYMENT SIGNALS
+FOUND: OpenAI
+FOUND: Microsoft
+FOUND: Meta
+FOUND: CTO
+FOUND: President
+FOUND: Founder
+FOUND: Engineer
+
+✅ PUBLIC PROFILE FOUND
+
+
+==========================================================================================
+https://nl.linkedin.com/in/thegdb
+==========================================================================================
+STATUS: 200
+FINAL URL: https://nl.linkedin.com/in/thegdb
+SIZE: 335154
+SAVED: linkedin_debug\nl.html
+PROFILE INDICATORS: ['public_profile_v3', 'application/ld+json', 'worksFor', 'jobTitle', 'profile:first_name']
+
+TITLE
+Greg Brockman - OpenAI | LinkedIn
+
+META PROFILE
+description : I love to build. · Ervaring: OpenAI · Opleiding: Massachusetts Institute of Technology · Locatie: San Francisco · 500+ connecties op LinkedIn. Bekijk het profiel van Greg Brockman op LinkedIn, een pro
+og:title : Greg Brockman - OpenAI | LinkedIn
+
+H1
+- Greg Brockman
+
+H2
+- Meld u aan en bekijk het volledige profiel van Greg
+- Meld u aan en bekijk het volledige profiel van Greg
+- Meld u aan en bekijk het volledige profiel van Greg
+- Gemeenschappelijke connecties met Greg weergeven
+- Meld u aan en bekijk het volledige profiel van Greg
+- Websites
+- Info
+- Welkom terug
+- Activiteit
+- Ervaring en opleidingen
+
+JSON-LD
+Blocks: 1
+{
+  "@context": "http://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "reviewedBy": {
+        "@type": "Person",
+        "name": "Greg Brockman"
+      },
+      "url": "https://www.linkedin.com/in/thegdb"
+    },
+    {
+      "@context": "http://schema.org",
+      "@type": "Person",
+      "address": {
+        "@type": "PostalAddress",
+        "addressCountry": "US",
+        "addressLocality": "San Francisco, Californi\u00eb, Verenigde Staten"
+      },
+      "alumniOf": [
+        {
+          "@type": "EducationalOrganization",
+          "name": "Massachusetts Institute of Technology",
+          "url": "https://www.linkedin.com/school/mit/",
+          "member": {
+            "@type": "OrganizationRole",
+            "startDate": 2010,
+            "endDate": 2010
+          }
+        },
+        {
+          "@type": "EducationalOrganization",
+          "name": "******* **********",
+          "member": {
+            "@type": "OrganizationRole",
+            "startDate": 2008,
+            "endDate": 2009
+          }
+        }
+      ],
+      "awards": [],
+      "disambiguatingDescription": "",
+      "image": {
+        "@type": "ImageObject",
+        "contentUrl": "https://media.licdn.com/dms/image/v2/C4D03AQGpw6js6Xz_jQ/profile-displayphoto-shrink_200_200/profile-displayphoto-shrink_200_200/0/1516853912679?e=2147483647&v=beta&t=4h9pckK6C38rDeORhxh4WaQ8pVS8XZvC9aPpZ2C9e3I"
+      },
+      "jobTitle": [
+        "********** ********* * **********",
+        "***"
+      ],
+      "knowsLanguage": [],
+      "memberOf": [],
+      "name": "Greg Brockman",
+      "sameAs": "https://www.linkedin.com/in/thegdb",
+      "url": "https://www.linkedin.com/in/thegdb",
+      "worksFor": [
+        {
+          "@type": "Organization",
+          "name": "OpenAI",
+          "url": "https://www.linkedin.com/company/openai",
+          "member": {
+            "@type": "OrganizationRole"
+          }
+        },
+        {
+          "@type": "Organization",
+          "name": "******",
+          "member": {
+            "@type": "OrganizationRole"
+          }
+        }
+      ],
+      "interactionStatistic": {
+        "@type": "InteractionCounter",
+        "interactionType": "https://schema.org/FollowAction",
+        "name": "Follows",
+        "userInteractionCount": 42983
+      },
+      "description": "I love to build."
+    }
+  ]
+}
+
+EMPLOYMENT SIGNALS
+FOUND: OpenAI
+FOUND: Meta
+FOUND: CTO
+FOUND: President
+FOUND: Founder
+FOUND: Engineer
+
+✅ PUBLIC PROFILE FOUND
+
+
+==========================================================================================
+https://es.linkedin.com/in/thegdb
+==========================================================================================
+STATUS: 200
+FINAL URL: https://es.linkedin.com/in/thegdb
+SIZE: 334735
+SAVED: linkedin_debug\es.html
+PROFILE INDICATORS: ['public_profile_v3', 'application/ld+json', 'worksFor', 'jobTitle', 'profile:first_name']
+
+TITLE
+Greg Brockman - OpenAI | LinkedIn
+
+META PROFILE
+description : I love to build. · Experiencia: OpenAI · Educación: Massachusetts Institute of Technology · Ubicación: San Francisco · Más de 500 contactos en LinkedIn. Ver el perfil de Greg Brockman en LinkedIn, una
+og:title : Greg Brockman - OpenAI | LinkedIn
+
+H1
+- Greg Brockman
+
+H2
+- Iniciar sesión para ver el perfil completo de Greg
+- Iniciar sesión para ver el perfil completo de Greg
+- Iniciar sesión para ver el perfil completo de Greg
+- Ver tus contactos en común con Greg
+- Iniciar sesión para ver el perfil completo de Greg
+- Sitios web
+- Acerca de
+- ¡Hola de nuevo!
+- Actividad
+- Experiencia y educación
+
+JSON-LD
+Blocks: 1
+{
+  "@context": "http://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "reviewedBy": {
+        "@type": "Person",
+        "name": "Greg Brockman"
+      },
+      "url": "https://www.linkedin.com/in/thegdb"
+    },
+    {
+      "@context": "http://schema.org",
+      "@type": "Person",
+      "address": {
+        "@type": "PostalAddress",
+        "addressCountry": "US",
+        "addressLocality": "San Francisco, California, Estados Unidos"
+      },
+      "alumniOf": [
+        {
+          "@type": "EducationalOrganization",
+          "name": "Massachusetts Institute of Technology",
+          "url": "https://www.linkedin.com/school/mit/",
+          "member": {
+            "@type": "OrganizationRole",
+            "startDate": 2010,
+            "endDate": 2010
+          }
+        },
+        {
+          "@type": "EducationalOrganization",
+          "name": "******* **********",
+          "member": {
+            "@type": "OrganizationRole",
+            "startDate": 2008,
+            "endDate": 2009
+          }
+        }
+      ],
+      "awards": [],
+      "disambiguatingDescription": "",
+      "image": {
+        "@type": "ImageObject",
+        "contentUrl": "https://media.licdn.com/dms/image/v2/C4D03AQGpw6js6Xz_jQ/profile-displayphoto-shrink_200_200/profile-displayphoto-shrink_200_200/0/1516853912679?e=2147483647&v=beta&t=4h9pckK6C38rDeORhxh4WaQ8pVS8XZvC9aPpZ2C9e3I"
+      },
+      "jobTitle": [
+        "********** ********* * **********",
+        "***"
+      ],
+      "knowsLanguage": [],
+      "memberOf": [],
+      "name": "Greg Brockman",
+      "sameAs": "https://www.linkedin.com/in/thegdb",
+      "url": "https://www.linkedin.com/in/thegdb",
+      "worksFor": [
+        {
+          "@type": "Organization",
+          "name": "OpenAI",
+          "url": "https://www.linkedin.com/company/openai",
+          "member": {
+            "@type": "OrganizationRole"
+          }
+        },
+        {
+          "@type": "Organization",
+          "name": "******",
+          "member": {
+            "@type": "OrganizationRole"
+          }
+        }
+      ],
+      "interactionStatistic": {
+        "@type": "InteractionCounter",
+        "interactionType": "https://schema.org/FollowAction",
+        "name": "Follows",
+        "userInteractionCount": 42983
+      },
+      "description": "I love to build."
+    }
+  ]
+}
+
+EMPLOYMENT SIGNALS
+FOUND: OpenAI
+FOUND: Meta
+FOUND: CTO
+FOUND: President
+FOUND: Founder
+FOUND: Engineer
+
+✅ PUBLIC PROFILE FOUND
+
+DONE
+PS D:\test\Freelance\Scraper-Api\project49\linkedin\test>
+
+
+
+-------------------------------------------------------------------------
+
+TEST TWO :
+import os
+import re
+import json
+import requests
+import urllib3
+from bs4 import BeautifulSoup
+
+# Suppress InsecureRequestWarning when using verify=False
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# ==========================================
+# 1. SCRAPER CONFIGURATION
+# ==========================================
+PROFILE = "thegdb"
+
+# Regional domains for public profile discovery
+DOMAINS = [
+    "www", "fr", "de", "uk", "in", "ca", "au", "nl", "es",
+]
+
+OUTPUT_DIR = "linkedin_debug"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+# ==========================================
+# 2. PROXY CONFIGURATION
+# ==========================================
+# Webshare rotating proxy endpoint (no trailing slash)
+PROXY_URL = "http://gqudurki-rotate:huu5vch7ydbe@p.webshare.io:80"
+
+PROXIES = {
+    "http": PROXY_URL,
+    "https": PROXY_URL,
+}
+
+# ==========================================
+# 3. HELPER FUNCTIONS
+# ==========================================
+def save_file(filename, content):
+    path = os.path.join(OUTPUT_DIR, filename)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    return path
+
+def is_redacted(text):
+    """Checks if string is missing or consists only of asterisks/placeholders."""
+    if not text:
+        return True
+    return bool(re.match(r"^\*+$", text.strip()))
+
+def clean_text(text):
+    if not text:
+        return None
+    cleaned = text.strip()
+    return cleaned if not is_redacted(cleaned) else None
+
+# ==========================================
+# 4. COMPREHENSIVE PARSING ENGINE
+# ==========================================
+def parse_linkedin_profile_html(html, domain_source):
+    soup = BeautifulSoup(html, "lxml")
+    
+    profile = {
+        "sourceDomain": f"{domain_source}.linkedin.com",
+        "fullName": None,
+        "firstName": None,
+        "lastName": None,
+        "headline": None,
+        "currentCompany": None,
+        "location": None,
+        "about": None,
+        "photoUrl": None,
+        "followersCount": None,
+        "connectionsCount": None,
+        "websites": [],
+        "education": [],
+        "experience": [],
+        "unredactedLogosFound": []
+    }
+
+    # -------------------------------------------------------------
+    # LAYER 1: JSON-LD Extraction (Highest Priority & Trust Score)
+    # -------------------------------------------------------------
+    scripts = soup.find_all("script", {"type": "application/ld+json"})
+    for s in scripts:
+        try:
+            raw_data = json.loads(s.string or s.text)
+            graph = raw_data.get("@graph", [raw_data])
+            for item in graph:
+                if item.get("@type") == "Person":
+                    profile["fullName"] = clean_text(item.get("name"))
+                    profile["about"] = clean_text(item.get("description"))
+                    
+                    if "image" in item and isinstance(item["image"], dict):
+                        profile["photoUrl"] = item["image"].get("contentUrl")
+                        
+                    if "address" in item and isinstance(item["address"], dict):
+                        profile["location"] = clean_text(item["address"].get("addressLocality"))
+                        
+                    if "worksFor" in item:
+                        works = item["worksFor"] if isinstance(item["worksFor"], list) else [item["worksFor"]]
+                        for work in works:
+                            c_name = clean_text(work.get("name"))
+                            if c_name and not profile["currentCompany"]:
+                                profile["currentCompany"] = c_name
+                            if c_name:
+                                profile["experience"].append({
+                                    "companyName": c_name,
+                                    "companyUrl": work.get("url"),
+                                    "position": None
+                                })
+                                
+                    if "alumniOf" in item:
+                        alumni = item["alumniOf"] if isinstance(item["alumniOf"], list) else [item["alumniOf"]]
+                        for edu in alumni:
+                            s_name = clean_text(edu.get("name"))
+                            if s_name:
+                                dates = edu.get("member", {})
+                                profile["education"].append({
+                                    "schoolName": s_name,
+                                    "schoolUrl": edu.get("url"),
+                                    "startDate": dates.get("startDate"),
+                                    "endDate": dates.get("endDate")
+                                })
+
+                    if "interactionStatistic" in item and isinstance(item["interactionStatistic"], dict):
+                        profile["followersCount"] = item["interactionStatistic"].get("userInteractionCount")
+        except Exception:
+            pass
+
+    # -------------------------------------------------------------
+    # LAYER 2: OpenGraph & Meta Tags (Fallback & Name Splitting)
+    # -------------------------------------------------------------
+    fn_meta = soup.find("meta", {"property": "profile:first_name"})
+    ln_meta = soup.find("meta", {"property": "profile:last_name"})
+    og_title = soup.find("meta", {"property": "og:title"})
+    og_image = soup.find("meta", {"property": "og:image"})
+
+    if fn_meta: profile["firstName"] = clean_text(fn_meta.get("content"))
+    if ln_meta: profile["lastName"] = clean_text(ln_meta.get("content"))
+    if og_image and not profile["photoUrl"]: profile["photoUrl"] = og_image.get("content")
+
+    if og_title:
+        title_val = og_title.get("content", "")
+        # Parse title: "Greg Brockman - OpenAI | LinkedIn"
+        parts = re.split(r"[\u2013\-]", title_val)
+        if len(parts) > 1 and not profile["currentCompany"]:
+            profile["currentCompany"] = clean_text(parts[1].split("|")[0])
+
+    # -------------------------------------------------------------
+    # LAYER 3: DOM Selectors (Location, Websites, Social Metrics)
+    # -------------------------------------------------------------
+    if not profile["fullName"]:
+        name_elem = soup.select_one("h1.top-card-layout__title")
+        if name_elem:
+            profile["fullName"] = clean_text(name_elem.get_text(strip=True))
+
+    if not profile["location"]:
+        loc_elem = soup.select_one(".profile-info-subheader > span:first-child")
+        if loc_elem:
+            profile["location"] = clean_text(loc_elem.get_text(strip=True))
+
+    # Parse Followers/Connections from Subheader DOM
+    counts_elem = soup.select(".not-first-middot span")
+    for span in counts_elem:
+        txt = span.get_text(strip=True)
+        if "Follower" in txt or "abonnés" in txt:
+            profile["followersCount"] = txt
+        elif "connection" in txt.lower() or "kontakte" in txt.lower() or "relation" in txt.lower():
+            profile["connectionsCount"] = txt
+
+    # Websites Modal Parsing (#websites dl.websites-list)
+    for row in soup.select("dl.websites-list .websites-list__row"):
+        label = row.select_one("dt")
+        url_elem = row.select_one("dd a")
+        if label and url_elem:
+            profile["websites"].append({
+                "category": clean_text(label.get_text(strip=True)),
+                "url": url_elem.get("href")
+            })
+
+    # -------------------------------------------------------------
+    # LAYER 4: Logo Image Extraction Trick (Unredact Hidden Employers)
+    # -------------------------------------------------------------
+    for img in soup.select("section.experience-education img"):
+        src = img.get("data-delayed-url", "") or img.get("src", "")
+        match = re.search(r"/([a-zA-Z0-9_\-]+)_logo\?", src)
+        if match:
+            logo_name = match.group(1).replace("_", " ").title()
+            if logo_name.lower() not in ["ghost", "entity", "company"]:
+                profile["unredactedLogosFound"].append(logo_name)
+
+    return profile
+
+# ==========================================
+# 5. EXECUTION RUNNER
+# ==========================================
+def test_regional_fetch(profile_id):
+    print(f"Starting Regional Fetch Rotation for profile: '{profile_id}'")
+    print("Using Rotating Proxy: Webshare Endpoint\n")
+
+    for domain in DOMAINS:
+        url = f"https://{domain}.linkedin.com/in/{profile_id}"
+        print("=" * 90)
+        print(f"[FETCHING] {url}")
+        print("=" * 90)
+
+        try:
+            response = requests.get(
+                url,
+                headers=HEADERS,
+                proxies=PROXIES,
+                timeout=15,
+                allow_redirects=True,
+                verify=False
+            )
+
+            print(f"Status: {response.status_code} | Final URL: {response.url} | Size: {len(response.text)} bytes")
+
+            # Save Raw HTML
+            saved_html_path = save_file(f"{domain}.html", response.text)
+            print(f"Saved raw HTML: {saved_html_path}")
+
+            html_lower = response.text.lower()
+
+            # Detect auth wall / login block
+            if "authwall" in html_lower or "sign in" in html_lower[:5000] or response.status_code == 999:
+                print(f"❌ Domain '{domain}' blocked by Auth Wall or Login redirect.")
+                continue
+
+            # Validate public profile indicators
+            indicators = ["public_profile_v3", "application/ld+json", "worksFor", "jobTitle"]
+            found_indicators = [ind for ind in indicators if ind.lower() in html_lower]
+            print(f"✅ Indicators Detected: {found_indicators}")
+
+            if len(found_indicators) >= 2:
+                # Parse structured JSON payload
+                extracted_data = parse_linkedin_profile_html(response.text, domain)
+                
+                # Save parsed JSON result
+                json_path = save_file(f"{domain}_extracted.json", json.dumps(extracted_data, indent=2))
+                print(f"Saved Extracted Data: {json_path}")
+                
+                print("\n--- EXTRACTED PROFILE PAYLOAD ---")
+                print(json.dumps(extracted_data, indent=2))
+
+                print(f"\n🎉 SUCCESS: Valid Public Profile extracted via '{domain}.linkedin.com'!")
+                return extracted_data
+            else:
+                print(f"⚠️ Page loaded but lacked strong public profile indicators on domain '{domain}'.")
+
+        except requests.exceptions.ProxyError:
+            print("❌ Proxy Error: Could not connect to the Webshare proxy server.")
+            break
+        except Exception as e:
+            print(f"❌ Error fetching domain '{domain}': {e}")
+
+    print("\n❌ All regional domains blocked, unavailable, or missing public profile indicators.")
+    return None
+
+if __name__ == "__main__":
+    test_regional_fetch(PROFILE)
+
+OUTPUT:
+PS D:\test\Freelance\Scraper-Api\project49\linkedin\test> python test_linkedin_html.py
+Starting Regional Fetch Rotation for profile: 'thegdb'
+Using Rotating Proxy: Webshare Endpoint
+
+==========================================================================================
+[FETCHING] https://www.linkedin.com/in/thegdb
+==========================================================================================
+Status: 200 | Final URL: https://www.linkedin.com/in/thegdb | Size: 338589 bytes
+Saved raw HTML: linkedin_debug\www.html
+✅ Indicators Detected: ['public_profile_v3', 'application/ld+json', 'worksFor', 'jobTitle']
+Saved Extracted Data: linkedin_debug\www_extracted.json
+
+--- EXTRACTED PROFILE PAYLOAD ---
+{
+  "sourceDomain": "www.linkedin.com",
+  "fullName": "Greg Brockman",
+  "firstName": "Greg",
+  "lastName": "Brockman",
+  "headline": null,
+  "currentCompany": "OpenAI",
+  "location": "San Francisco, California, United States",
+  "about": "I love to build.",
+  "photoUrl": "https://media.licdn.com/dms/image/v2/C4D03AQGpw6js6Xz_jQ/profile-displayphoto-shrink_200_200/profile-displayphoto-shrink_200_200/0/1516853912679?e=2147483647&v=beta&t=4h9pckK6C38rDeORhxh4WaQ8pVS8XZvC9aPpZ2C9e3I",
+  "followersCount": 42983,
+  "connectionsCount": "500+ connections",
+  "websites": [
+    {
+      "category": "Personal Website",
+      "url": "https://www.linkedin.com/redir/redirect?url=http%3A%2F%2Fgregbrockman%2Ecom&urlhash=n8F7&trk=public_profile_website"
+    },
+    {
+      "category": "Portfolio",
+      "url": "https://www.linkedin.com/redir/redirect?url=https%3A%2F%2Fgithub%2Ecom%2Fgdb&urlhash=BGxG&trk=public_profile_website"
+    }
+  ],
+  "education": [
+    {
+      "schoolName": "Massachusetts Institute of Technology",
+      "schoolUrl": "https://www.linkedin.com/school/mit/",
+      "startDate": 2010,
+      "endDate": 2010
+    },
+    {
+      "schoolName": "******* **********",
+      "schoolUrl": null,
+      "startDate": 2008,
+      "endDate": 2009
+    }
+  ],
+  "experience": [
+    {
+      "companyName": "OpenAI",
+      "companyUrl": "https://www.linkedin.com/company/openai",
+      "position": null
+    }
+  ],
+  "unredactedLogosFound": [
+    "Openai",
+    "Stripe",
+    "Mit"
+  ]
+}
+
+🎉 SUCCESS: Valid Public Profile extracted via 'www.linkedin.com'!
+PS D:\test\Freelance\Scraper-Api\project49\linkedin\test> 
+
+
+-------------------------------------------------------------
+
+The important thing you discovered is not "regional domains". That's just the symptom.
+
+The actual discovery is this:
+
+LinkedIn's CDN/edge servers don't always serve the same HTML for the same profile.
+
+The exact same URL can return completely different pages depending on:
+
+which edge server receives your request
+
+which proxy IP you got
+
+country/POP
+
+fingerprint
+
+current bot score
+
+LinkedIn load balancing
+
+That means this is happening:
+
+Request 1
+www.linkedin.com/in/thegdb
+IP A
+↓
+Edge Server 14
+↓
+AUTH WALL
+
+
+Request 2
+www.linkedin.com/in/thegdb
+IP B
+↓
+Edge Server 42
+↓
+PUBLIC PROFILE
+
+
+Request 3
+fr.linkedin.com/in/thegdb
+IP C
+↓
+Edge Server 81
+↓
+PUBLIC PROFILE
+Notice something?
+
+The profile didn't change.
+
+Only which LinkedIn server answered changed.
+
+So why do regional domains work?
+Because
+
+www.linkedin.com
+
+fr.linkedin.com
+
+uk.linkedin.com
+
+de.linkedin.com
+
+es.linkedin.com
+don't always hit the exact same backend edge.
+
+Think of them like different entrances into the same building.
+
+             LinkedIn
+
+          +--------------+
+          |              |
+www ------| Edge A       |
+fr -------| Edge B       |
+uk -------| Edge C       |
+de -------| Edge D       |
+in -------| Edge E       |
+          |              |
+          +--------------+
+Sometimes
+
+Edge A
+is strict.
+
+Sometimes
+
+Edge C
+is relaxed.
+
+Sometimes
+
+Edge E
+still serves public HTML.
+
+You're simply increasing the number of entrances.
+
+Your current implementation
+Right now yours does
+
+www
+
+↓
+
+if blocked
+
+↓
+
+fr
+
+↓
+
+if blocked
+
+↓
+
+uk
+
+↓
+
+...
+
+↓
+
+STOP
+That works.
+
+But it isn't maximizing success.
+
+Better architecture
+Treat every region like a provider.
+
+Provider
+
+↓
+
+Region
+
+↓
+
+Attempt
+
+↓
+
+Parse
+
+↓
+
+Merge
+Instead of
+
+Region
+
+↓
+
+Complete success?
+
+↓
+
+Yes
+
+↓
+
+Stop
+do
+
+Region
+
+↓
+
+Anything useful?
+
+↓
+
+Merge it
+
+↓
+
+Continue
+That is a massive difference.
+
+Example
+Imagine
+
+www
+returns
+
+Name
+Photo
+Location
+No company.
+
+fr
+returns
+
+Company
+Followers
+uk
+returns
+
+Education
+Website
+Old approach
+
+www worked
+
+STOP
+You lose everything else.
+
+Better approach
+
+www
+
+↓
+
+merge
+
+↓
+
+fr
+
+↓
+
+merge
+
+↓
+
+uk
+
+↓
+
+merge
+
+↓
+
+done
+Final profile
+
+Name ✔
+
+Photo ✔
+
+Company ✔
+
+Education ✔
+
+Followers ✔
+
+Website ✔
+
+Location ✔
+This is exactly how enterprise scrapers work.
+
+Field-level completion
+Never think
+
+Did I get the profile?
+Think
+
+Which fields are still missing?
+Example
+
+Need:
+
+Name
+Photo
+Headline
+Company
+Experience
+Education
+Followers
+Location
+After www
+
+✔ Name
+
+✔ Photo
+
+✔ Location
+
+✖ Company
+
+✖ Education
+
+✖ Experience
+
+✖ Followers
+So continue.
+
+After fr
+
+✔ Name
+
+✔ Photo
+
+✔ Company
+
+✔ Followers
+
+✔ Location
+
+✖ Education
+
+✖ Experience
+Continue.
+
+After uk
+
+Everything complete.
+Now stop.
+
+Region retry
+Instead of
+
+www
+
+↓
+
+next region
+Do
+
+www
+
+Attempt 1
+
+↓
+
+Attempt 2
+
+↓
+
+Attempt 3
+
+↓
+
+Next region
+Why?
+
+Because Webshare rotating proxy gives a different exit IP almost every request.
+
+Attempt 1
+
+US Exit
+↓
+
+Blocked
+Attempt 2
+
+Germany Exit
+
+↓
+
+Public HTML
+Attempt 3
+
+France Exit
+
+↓
+
+Public HTML
+Same URL.
+
+Different IP.
+
+Different LinkedIn edge.
+
+Different result.
+
+Global retry
+After finishing all regions
+
+www x3
+
+fr x3
+
+de x3
+
+uk x3
+
+...
+
+No success?
+Don't quit immediately.
+
+Start another pass.
+
+Example
+
+PASS 1
+
+www x3
+
+fr x3
+
+...
+
+Nothing useful
+
+↓
+
+PASS 2
+
+www x3
+
+fr x3
+
+...
+
+Photo appears
+
+↓
+
+PASS 3
+
+Company appears
+
+↓
+
+PASS 4
+
+Education appears
+
+↓
+
+Done
+This dramatically increases the chance of success because each request has a chance of landing on a different LinkedIn edge node.
+
+But it must be bounded. Use a maximum of 7 complete passes across all regions. Do not create an unlimited loop.
+
+Stopping condition
+This is the biggest mistake most scrapers make.
+
+Don't stop only when
+
+100% profile complete
+because LinkedIn often redacts some fields permanently.
+
+Instead stop when either:
+
+All important fields are present, or
+
+A full pass adds no new information compared to the previous pass, or
+
+You reach the maximum global passes (e.g. 7).
+
+For example:
+
+Pass 4
+
+Company added
+Pass 5
+
+Nothing new
+Pass 6
+
+Nothing new
+Pass 7
+
+Nothing new
+Stop. More retries are unlikely to help.
+
+Complete flow
+Start
+
+↓
+
+Initialize empty profile
+
+↓
+
+FOR globalPass = 1 → 7
+
+    FOR each region
+
+        FOR attempt = 1 → 3
+
+            Fetch HTML
+
+            Auth wall?
+                Continue
+
+            Parse
+
+            Extract fields
+
+            Merge only missing/better fields
+
+            If this attempt added new fields:
+                Break (go to next region)
+
+    If profile is complete:
+        Stop
+
+    If this entire pass added nothing new:
+        Stop
+
+Return merged profile
+This turns your fetcher from "find one successful HTML page" into an evidence aggregation engine. Each successful regional response contributes whatever verified fields it contains, and retries are used to increase the chances of reaching different LinkedIn edge servers—not to wait for a magically "perfect" page.
+
+
+bruh you have to explain to the gmeini not me
+
+Here's a prompt you can give Gemini. It explains the mechanism instead of just telling it "implement retries".
+
+The current implementation is misunderstanding the discovery strategy.
+
+The goal is NOT to keep retrying until every field (headline, education, experience, etc.) is perfectly extracted.
+
+The goal is to maximize the chance of obtaining a public LinkedIn HTML page, because that is the hardest part of the entire pipeline.
+
+Once a usable public HTML page is obtained, we should parse whatever information exists in that HTML and stop. We should never enter an endless retry loop trying to fill every missing field.
+
+What we discovered
+Through testing we found that LinkedIn does not behave consistently.
+
+The exact same profile can return different HTML depending on:
+
+Regional LinkedIn domain
+
+Edge routing
+
+Risk score
+
+Proxy IP
+
+Request fingerprint
+
+Temporary server state
+
+For example:
+
+Attempt 1
+
+www.linkedin.com
+→ AUTH WALL
+
+Attempt 2
+
+fr.linkedin.com
+→ AUTH WALL
+
+Attempt 3
+
+de.linkedin.com
+→ Full public profile HTML
+
+The profile itself was never different.
+
+Only the response changed.
+
+This means our retry logic should focus on obtaining one successful public HTML response, not on repeatedly parsing the same failed page.
+
+Correct Architecture
+Think of every regional LinkedIn domain as an independent fetch provider.
+
+Profile
+
+↓
+
+www.linkedin.com
+fr.linkedin.com
+de.linkedin.com
+uk.linkedin.com
+in.linkedin.com
+ca.linkedin.com
+au.linkedin.com
+nl.linkedin.com
+es.linkedin.com
+Each region is another opportunity to receive public HTML.
+
+Retry Strategy
+There are two retry levels.
+
+Level 1 — Per Region
+Every regional domain should be attempted up to 3 times.
+
+Example
+
+www
+ Attempt 1
+ Attempt 2
+ Attempt 3
+
+If still blocked
+
+↓
+
+Move to next region
+Reasons:
+
+Sometimes the same region succeeds on the second or third request because:
+
+rotating proxy changed
+
+LinkedIn edge node changed
+
+transient block disappeared
+
+different CDN server answered
+
+Do not give up after one request.
+
+Level 2 — Global Retry
+After every region has been attempted once (3 tries each),
+
+perform another global pass over all regions.
+
+Example
+
+Pass 1
+
+www
+fr
+de
+uk
+in
+ca
+au
+nl
+es
+Nothing usable found.
+
+Start Pass 2
+
+Again
+
+www
+fr
+de
+uk
+...
+Continue until
+
+a usable profile is fetched
+
+OR 7 global passes have completed
+
+Maximum:
+
+7 global passes
+
+×
+
+9 regions
+
+×
+
+3 attempts each
+
+=
+189 fetch attempts
+This is intentional.
+
+The expensive part is obtaining a public HTML page.
+
+IMPORTANT STOP CONDITION
+This is where the current implementation is wrong.
+
+It should NOT keep retrying because a field is missing.
+
+Bad logic:
+
+headline missing
+
+↓
+
+retry
+
+education missing
+
+↓
+
+retry
+
+experience missing
+
+↓
+
+retry forever
+This creates an endless loop.
+
+Instead, retries should only happen because we failed to obtain usable HTML.
+
+What Counts as Success?
+A fetch is successful if we receive a usable public profile page.
+
+Examples of acceptable evidence:
+
+JSON-LD exists
+
+Person object exists
+
+worksFor exists
+
+education exists
+
+photo exists
+
+location exists
+
+meta profile tags exist
+
+public_profile_v3 marker exists
+
+DOM contains profile information
+
+The page does NOT need every field.
+
+Even partial information is valuable.
+
+For example:
+
+✓ name
+✓ photo
+✓ worksFor
+✓ education
+
+headline = null
+This is already a successful fetch.
+
+Stop retrying.
+
+Return the parsed profile.
+
+Another example
+
+✓ name
+✓ location
+✓ image
+
+experience missing
+Still success.
+
+Stop.
+
+Another example
+
+✓ JSON-LD Person
+
+✓ photo
+
+✓ followers
+
+✓ company
+
+education missing
+Still success.
+
+Do not retry.
+
+What Counts as Failure?
+Retry only when we receive unusable HTML.
+
+Examples:
+
+HTTP 999
+
+Auth wall
+
+Login page
+
+Captcha
+
+Empty HTML
+
+HTML too small
+
+Missing Person object
+
+No JSON-LD
+
+No public profile indicators
+
+Only these cases should trigger another fetch attempt.
+
+Parsing Strategy
+Once a valid public page is obtained:
+
+Extract everything available using the normal priority order:
+
+JSON-LD
+
+Meta tags
+
+OpenGraph
+
+Title
+
+DOM
+
+Rehydration payload
+
+Other evidence
+
+Merge every extracted field.
+
+Do not discard the page because some fields are missing.
+
+Final Algorithm
+for globalPass in range(7):
+
+    for region in regions:
+
+        for attempt in range(3):
+
+            html = fetch(region)
+
+            if authWall(html):
+                continue
+
+            profile = parse(html)
+
+            if profile.hasAnyUsefulEvidence():
+
+                return profile
+
+return FETCH_FAILED
+Notice the success condition:
+
+It is not
+
+profile.complete == true
+It is
+
+profile.containsUsefulEvidence() == true
+That distinction is critical.
+
+The retry mechanism is responsible only for obtaining a usable public HTML page.
+
+The parser is responsible for extracting whatever evidence exists in that page.
+
+Those two responsibilities must remain separate.
+
+
